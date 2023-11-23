@@ -76,6 +76,9 @@ func hasExecutePermission(filename string) bool {
 
 // FindCommandPath 查找命令行路径
 func FindCommandPath(cmd string) (string, error) {
+	if currentUser == nil {
+		return "", ErrCannotGetCurrentUser
+	}
 	// 去除首尾空格
 	cmd = strings.TrimSpace(cmd)
 
@@ -100,20 +103,11 @@ func FindCommandPath(cmd string) (string, error) {
 
 	cmd = strings.ReplaceAll(strings.Fields(cmd)[0], "\x00", " ")
 
-	// 尝试使用 LookPath 查找命令
-	if p, err := exec.LookPath(cmd); err == nil {
-		return p, nil
-	}
-
 	// 如果 LookPath 找不到，尝试将命令作为相对路径解析
 	if strings.HasPrefix(cmd, "./") || strings.HasPrefix(cmd, "../") || strings.HasPrefix(cmd, "~/") {
 		// 如果命令以 "~/" 开头，替换为用户的主目录
 		if strings.HasPrefix(cmd, "~/") {
-			usr, err := user.Current()
-			if err != nil {
-				return "", err
-			}
-			cmd = filepath.Join(usr.HomeDir, cmd[2:])
+			cmd = filepath.Join(currentUser.HomeDir, cmd[2:])
 		}
 
 		if p, err := filepath.Abs(cmd); err != nil {
@@ -121,6 +115,11 @@ func FindCommandPath(cmd string) (string, error) {
 		} else if hasExecutePermission(p) {
 			return p, nil
 		}
+	}
+
+	// 尝试使用 LookPath 查找命令
+	if p, err := exec.LookPath(cmd); err == nil {
+		return p, nil
 	}
 
 	return "", fmt.Errorf("%w: %s", ErrNotFound, cmd)
