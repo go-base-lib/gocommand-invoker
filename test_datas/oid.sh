@@ -1,3 +1,3 @@
 #!/bin/bash
 
-echo "test gid have execute"
+echo "test oid have execute"

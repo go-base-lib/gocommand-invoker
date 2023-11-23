@@ -1,20 +1,18 @@
 package gocommandinvoker
 
-// InvokeResult 命令调用结果
-type InvokeResult struct {
+func newErrResult(err error) *Result {
+	return &Result{err: err}
 }
 
-func (i *InvokeResult) Write(p []byte) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
+// Result 命令调用结果
+type Result struct {
+	err error
 }
 
-func (i *InvokeResult) Read(p []byte) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
+func (r *Result) IsError() bool {
+	return r.err != nil
 }
 
-func (i *InvokeResult) Close() error {
-	//TODO implement me
-	panic("implement me")
+func (r *Result) Error() error {
+	return r.err
 }
