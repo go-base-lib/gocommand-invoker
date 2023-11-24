@@ -41,19 +41,20 @@ func TestFindCommandPath(t *testing.T) {
 		Convey("测试查找不存在的命令路径", func() {
 			testCases := []struct {
 				command string
+				err     error
 			}{
-				{"ls1"},
-				{"pwd1"},
-				{"./ls"},
-				{"../ls"},
-				{"~/ls"},
-				{"~/ls\\a -la"},
-				{filepath.Join(testDataDir, "no_execute.sh")},
+				{"ls1", ErrNotFound},
+				{"pwd1", ErrNotFound},
+				{"./ls", ErrNotFound},
+				{"../ls", ErrNotFound},
+				{"~/ls", ErrNotFound},
+				{"~/ls\\a -la", ErrNotFound},
+				{filepath.Join(testDataDir, "no_execute.sh"), ErrNoExecutionPermissions},
 			}
 
 			for _, testCase := range testCases {
 				_, _, err := FindCommandPath(testCase.command)
-				So(errors.Is(err, ErrNotFound), ShouldBeTrue)
+				So(errors.Is(err, testCase.err), ShouldBeTrue)
 			}
 		})
 

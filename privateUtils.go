@@ -118,5 +118,14 @@ func handleSysPath(p string) (string, error) {
 		p = filepath.Join(currentUser.HomeDir, p[2:])
 	}
 
-	return filepath.Abs(p)
+	absPath, err := filepath.Abs(p)
+	if err != nil {
+		return "", ErrNotFound
+	}
+
+	if _, err = os.Stat(absPath); err != nil {
+		return "", ErrNotFound
+	}
+
+	return absPath, nil
 }

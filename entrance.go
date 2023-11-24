@@ -8,6 +8,7 @@ import (
 
 var (
 	defaultCmdPrefix = ""
+	defaultRunner    *Runner
 )
 
 func New() *Runner {
@@ -34,11 +35,14 @@ func FindCommandPath(cmd string) (string, []string, error) {
 	cmd = cmdAndArgs[0]
 
 	// 如果 LookPath 找不到，尝试将命令作为相对路径解析
-	if strings.HasPrefix(cmd, "./") || strings.HasPrefix(cmd, "../") || strings.HasPrefix(cmd, "~/") {
+	if strings.HasPrefix(cmd, "./") || strings.HasPrefix(cmd, "../") || strings.HasPrefix(cmd, "~/") || strings.HasPrefix(cmd, "/") {
 		if p, err := handleSysPath(cmd); err != nil {
 			return "", nil, err
-		} else if hasExecutePermission(p) {
-			return p, nil, nil
+		} else {
+			if hasExecutePermission(p) {
+				return p, cmdAndArgs[1:], nil
+			}
+			return "", nil, ErrNoExecutionPermissions
 		}
 	}
 
@@ -48,4 +52,10 @@ func FindCommandPath(cmd string) (string, []string, error) {
 	}
 
 	return "", nil, fmt.Errorf("%w: %s", ErrNotFound, cmd)
+}
+
+// Exec 执行命令
+func Exec(cmd string) (string, error) {
+	defaultRunner.Exec(cmd)
+	return "", nil
 }

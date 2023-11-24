@@ -9,7 +9,7 @@ func TestProcessor_Run(t *testing.T) {
 
 	runner := New()
 	r := runner.ExecWithOptions("ls", &RunnerOptions{
-		Dir: "~/Desktop",
+		Dir: "~",
 	}).Run()
 	fmt.Println(r)
 
