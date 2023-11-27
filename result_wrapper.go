@@ -2,10 +2,10 @@ package gocommandinvoker
 
 import (
 	"errors"
-	"os"
+	"io"
 	"os/exec"
-	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -16,11 +16,11 @@ func newErrResult(err error) *Result {
 
 // newResult 创建结果
 func newResult(cmd *exec.Cmd) *Result {
-	r := &Result{}
+	r := &Result{
+		cmd: cmd,
+	}
 
-	go r.run()
-
-	return r
+	return r.run()
 }
 
 // ResultStatus 结果状态
@@ -33,6 +33,8 @@ const (
 	ResultStatusRunning
 	// ResultStatusRunError 运行错误
 	ResultStatusRunError
+	// ResultStatusSuccess 成功
+	ResultStatusSuccess
 	// ResultStatusRunWaitError 等待错误
 	ResultStatusRunWaitError
 	// ResultStatusOtherError 错误
@@ -42,16 +44,13 @@ const (
 // Result 命令调用结果
 type Result struct {
 	sync.Mutex
-	cmd            *exec.Cmd
-	err            error
-	tempDir        string
-	stdIn          *os.File
-	stdOut         *os.File
-	stdOutReadonly *os.File
-	stdErr         *os.File
-	stdErrReadonly *os.File
-	status         ResultStatus
-	runOk          chan struct{}
+	cmd    *exec.Cmd
+	err    error
+	stdIn  io.WriteCloser
+	stdOut io.ReadCloser
+	stdErr io.ReadCloser
+	status ResultStatus
+	runOk  chan struct{}
 }
 
 // IsError 是否错误
@@ -65,19 +64,18 @@ func (r *Result) Error() error {
 }
 
 // run 运行
-func (r *Result) run() {
+func (r *Result) run() *Result {
 	r.Lock()
 	defer r.Unlock()
 
 	if r.runOk != nil {
-		return
+		return r
 	}
 
-	r.runOk = make(chan struct{}, 1)
+	r.runOk = make(chan struct{})
 
 	var (
-		err     error
-		tempDir string
+		err error
 	)
 
 	defer func() {
@@ -87,36 +85,27 @@ func (r *Result) run() {
 	}()
 
 	if r.status != ResultStatusNoRun {
-		return
+		return r
 	}
 
-	tempDir, err = os.MkdirTemp("", "gocommandinvoker*")
-	if err != nil {
-		r.restOtherErrorStatus(ErrCreateTempDirFailed)
-		return
+	if r.stdIn, err = r.cmd.StdinPipe(); err != nil {
+		r.restOtherErrorStatus(err)
+		return r
 	}
 
-	r.tempDir = tempDir
-
-	if r.stdIn, _, err = r.openFileInTempDir("_stdin", false); err != nil {
-		return
+	if r.stdOut, err = r.cmd.StdoutPipe(); err != nil {
+		r.restOtherErrorStatus(err)
+		return r
 	}
 
-	if r.stdOut, r.stdOutReadonly, err = r.openFileInTempDir("_stdout", true); err != nil {
-		return
+	if r.stdErr, err = r.cmd.StderrPipe(); err != nil {
+		r.restOtherErrorStatus(err)
+		return r
 	}
 
-	if r.stdErr, r.stdErrReadonly, err = r.openFileInTempDir("_stderr", true); err != nil {
-		return
-	}
-
-	r.cmd.Stdin = r.stdIn
-	r.cmd.Stdout = r.stdOut
-	r.cmd.Stderr = r.stdErr
-
-	if err = r.cmd.Run(); err != nil {
+	if err = r.cmd.Start(); err != nil {
 		r.restErrorStatus(ResultStatusRunError, err)
-		return
+		return r
 	}
 
 	r.status = ResultStatusRunning
@@ -126,8 +115,13 @@ func (r *Result) run() {
 
 		if err = r.cmd.Wait(); err != nil {
 			r.restErrorStatus(ResultStatusRunWaitError, err)
+			return
 		}
+		r.err = nil
+		r.status = ResultStatusSuccess
 	}()
+
+	return r
 }
 
 // restStatusAndCallFn 重置状态并调用函数
@@ -150,35 +144,14 @@ func (r *Result) restErrorStatus(status ResultStatus, err error) {
 	})
 }
 
-// openFileInTempDir 在临时目录中打开文件
-func (r *Result) openFileInTempDir(filename string, createReadonlyStream bool) (*os.File, *os.File, error) {
-	if r.tempDir == "" {
-		return nil, nil, ErrTempDirNotExists
-	}
-
-	fPath := filepath.Join(r.tempDir, filename)
-	f, err := os.OpenFile(fPath, os.O_CREATE|os.O_RDWR, 0666)
-	if err != nil {
-		r.restOtherErrorStatus(ErrCreateTempFileFailed)
-		return nil, nil, err
-	}
-
-	var fR *os.File
-
-	if createReadonlyStream {
-		if fR, err = os.OpenFile(fPath, os.O_RDONLY, 0666); err != nil {
-			_ = f.Close()
-			r.restOtherErrorStatus(ErrCreateTempFileFailed)
-			return nil, nil, err
-		}
-	}
-
-	return f, fR, nil
-}
-
 func (r *Result) statusCheckAndCallback(callback func() error, status ...ResultStatus) error {
-	r.Lock()
-	defer r.Unlock()
+	if r.TryLock() {
+		defer r.Unlock()
+	}
+
+	if r.IsError() {
+		return r.Error()
+	}
 
 	if !slices.Contains(status, r.status) {
 		return ErrResultStatusNoMatch
@@ -206,11 +179,32 @@ func (r *Result) String() (string, error) {
 	}
 
 	if err := r.statusCheckAndCallback(func() error {
-		errStr := r.err.Error()
-		stdOutStat, err := r.stdOutReadonly.Stat()
-		stdErrStat, err := r.stdErrReadonly.Stat()
+		buf := &strings.Builder{}
+		buf.WriteString(r.err.Error())
+		if output, err := io.ReadAll(r.stdOut); err == nil {
+			buf.WriteString("\nOUTPUT:\n")
+			buf.Write(output)
+		}
+
+		if errOutput, err := io.ReadAll(r.stdErr); err != nil {
+			buf.WriteString("\nERROR_OUTPUT:\n")
+			buf.Write(errOutput)
+		}
+
+		result = buf.String()
 		return nil
 	}, ResultStatusRunWaitError); !errors.Is(err, ErrResultStatusNoMatch) {
+		return result, err
+	}
+
+	if err := r.statusCheckAndCallback(func() error {
+		if buf, err := io.ReadAll(r.stdOut); err != nil {
+			return err
+		} else {
+			result = string(buf)
+		}
+		return nil
+	}, ResultStatusSuccess); !errors.Is(err, ErrResultStatusNoMatch) {
 		return result, err
 	}
 

@@ -11,6 +11,6 @@ func TestProcessor_Run(t *testing.T) {
 	r := runner.ExecWithOptions("ls", &RunnerOptions{
 		Dir: "~",
 	}).Run()
-	fmt.Println(r)
+	fmt.Println(r.String())
 
 }
