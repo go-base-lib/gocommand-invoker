@@ -1,12 +1,15 @@
 package gocommandinvoker
 
 import (
+	"bytes"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 // newErrResult 创建错误结果
@@ -44,13 +47,14 @@ const (
 // Result 命令调用结果
 type Result struct {
 	sync.Mutex
-	cmd    *exec.Cmd
-	err    error
-	stdIn  io.WriteCloser
-	stdOut io.ReadCloser
-	stdErr io.ReadCloser
-	status ResultStatus
-	runOk  chan struct{}
+	cmd          *exec.Cmd
+	processState *os.ProcessState
+	err          error
+	stdIn        io.WriteCloser
+	stdOut       io.ReadWriter
+	stdErr       io.ReadWriter
+	status       ResultStatus
+	runOk        chan struct{}
 }
 
 // IsError 是否错误
@@ -93,15 +97,11 @@ func (r *Result) run() *Result {
 		return r
 	}
 
-	if r.stdOut, err = r.cmd.StdoutPipe(); err != nil {
-		r.restOtherErrorStatus(err)
-		return r
-	}
+	r.stdOut = &bytes.Buffer{}
+	r.stdErr = &bytes.Buffer{}
 
-	if r.stdErr, err = r.cmd.StderrPipe(); err != nil {
-		r.restOtherErrorStatus(err)
-		return r
-	}
+	r.cmd.Stdout = r.stdOut
+	r.cmd.Stderr = r.stdErr
 
 	if err = r.cmd.Start(); err != nil {
 		r.restErrorStatus(ResultStatusRunError, err)
@@ -109,6 +109,7 @@ func (r *Result) run() *Result {
 	}
 
 	r.status = ResultStatusRunning
+	r.processState = r.cmd.ProcessState
 
 	go func() {
 		defer close(r.runOk)
@@ -161,12 +162,29 @@ func (r *Result) statusCheckAndCallback(callback func() error, status ...ResultS
 }
 
 func (r *Result) Pid() int {
-	return r.cmd.ProcessState.Pid()
+	return r.cmd.Process.Pid
+}
+
+func (r *Result) Kill() error {
+	if r.IsError() {
+		return r.err
+	}
+
+	if r.status != ResultStatusRunning {
+		return ErrExecNoRun
+	}
+
+	pid := r.Pid()
+	return syscall.Kill(-pid, syscall.SIGKILL)
 }
 
 func (r *Result) String() (string, error) {
 	r.Lock()
 	defer r.Unlock()
+	if r.IsError() {
+		return "", r.Error()
+	}
+
 	<-r.runOk
 
 	var result string

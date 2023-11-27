@@ -80,5 +80,11 @@ func (r *RunnerOptions) generatorExecCmd() *exec.Cmd {
 	cmd.Env = r.Env
 	cmd.Dir = r.Dir
 	cmd.SysProcAttr = r.SysProcAttr
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+
+	cmd.SysProcAttr.Setpgid = true
+
 	return cmd
 }
