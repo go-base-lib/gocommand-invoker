@@ -13,4 +13,10 @@ var (
 	ErrNoExecutionPermissions = errors.New("no execution permissions")
 	// ErrCreateTempDirFailed 创建临时目录失败
 	ErrCreateTempDirFailed = errors.New("create temp dir failed")
+	// ErrCreateTempFileFailed 创建临时文件失败
+	ErrCreateTempFileFailed = errors.New("create temp file failed")
+	// ErrTempDirNotExists 临时目录不存在
+	ErrTempDirNotExists = errors.New("temp dir not exists")
+	// ErrResultStatusNoMatch 结果状态不匹配
+	ErrResultStatusNoMatch = errors.New("result status no match")
 )
