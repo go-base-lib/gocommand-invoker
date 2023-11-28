@@ -56,6 +56,5 @@ func FindCommandPath(cmd string) (string, []string, error) {
 
 // Exec 执行命令
 func Exec(cmd string) (string, error) {
-	defaultRunner.Exec(cmd)
-	return "", nil
+	return defaultRunner.Exec(cmd).Run().String()
 }
